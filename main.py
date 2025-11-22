@@ -12,6 +12,8 @@ Pipeline Phases:
 
 import os
 import sys
+import json
+import pickle
 from pathlib import Path
 
 # Add the project root to the Python path
@@ -40,6 +42,13 @@ from pipeline.phase_4_kg_construction import build_knowledge_graph, export_graph
 from utils.visualization import print_pipeline_summary, save_graph_visualization
 
 
+# =============================================================================
+# CẤU HÌNH CHẠY (DEBUG CONFIG)
+# =============================================================================
+# Đặt True nếu bạn muốn bỏ qua Phase 1 & 2 và dùng file Phase2_Response.pkl đã lưu
+RESUME_FROM_PHASE_3 = False 
+# =============================================================================
+
 def main():
     """
     Main orchestrator function that executes the four-phase pipeline.
@@ -63,52 +72,118 @@ def main():
         print(f"  - Model: {model_name}")
     print(f"  - Input File: {input_file}")
     print(f"  - Output Directory: {output_dir}")
+    print(f"  - Resume Mode: {'ON (Skipping P1/P2)' if RESUME_FROM_PHASE_3 else 'OFF (Running full pipeline)'}")
     print()
     
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
     
+    # Variables to hold state across phases
+    all_triples = []
+    unique_nodes = set()
+    grounded_nodes = []
+
     # =========================================================================
-    # PHASE 1: DOCUMENT INGESTION & PREPROCESSING (STUBBED)
+    # LOGIC: RUN PHASE 1 & 2 OR RESUME FROM CHECKPOINT
     # =========================================================================
-    print("-" * 80)
-    print("PHASE 1: DOCUMENT INGESTION & PREPROCESSING")
-    print("-" * 80)
-    print("Status: Loading and segmenting medical text...")
     
-    try:
-        text_segments = load_and_segment_text(input_file)
-        print(f"✓ Phase 1 Complete. Found {len(text_segments)} text chunks.")
-        print(f"  Sample chunk: {text_segments[0]['text'][:100]}..." if text_segments else "  No chunks found.")
-        print()
-    except Exception as e:
-        print(f"✗ Phase 1 Failed: {e}")
-        return
-    
-    # =========================================================================
-    # PHASE 2: TRIPLE EXTRACTION
-    # =========================================================================
-    print("-" * 80)
-    print("PHASE 2: TRIPLE EXTRACTION")
-    print("-" * 80)
-    print("Status: Extracting (Head, Relation, Tail) triples from text...")
-    
-    try:
-        extractor = TripleExtractor(use_real_llm=use_real_llm)
-        all_triples, unique_nodes = extractor.extract_from_segments(text_segments)
+    if RESUME_FROM_PHASE_3:
+        print("-" * 80)
+        print("RESUMING PIPELINE FROM PHASE 2 CHECKPOINT")
+        print("-" * 80)
+        checkpoint_path = os.path.join(output_dir, "Phase2_Response.pkl")
         
-        print(f"✓ Phase 2 Complete.")
-        print(f"  - Total Triples Extracted: {len(all_triples)}")
-        print(f"  - Entity-Entity (E-E): {sum(1 for t in all_triples if t['type'] == 'E-E')}")
-        print(f"  - Entity-Event (E-Ev): {sum(1 for t in all_triples if t['type'] == 'E-Ev')}")
-        print(f"  - Event-Event (Ev-Ev): {sum(1 for t in all_triples if t['type'] == 'Ev-Ev')}")
-        print(f"  - Unique Nodes: {len(unique_nodes)}")
-        print()
-    except Exception as e:
-        print(f"✗ Phase 2 Failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return
+        if os.path.exists(checkpoint_path):
+            try:
+                print(f"📂 Loading data from {checkpoint_path}...")
+                with open(checkpoint_path, "rb") as f:
+                    checkpoint_data = pickle.load(f)
+                    all_triples = checkpoint_data.get("all_triples", [])
+                    unique_nodes = checkpoint_data.get("unique_nodes", set())
+                
+                print(f"✅ Checkpoint loaded successfully!")
+                print(f"   - Triples: {len(all_triples)}")
+                print(f"   - Unique Nodes: {len(unique_nodes)}")
+            except Exception as e:
+                print(f"❌ Failed to load checkpoint: {e}")
+                return
+        else:
+            print(f"❌ Checkpoint file not found at: {checkpoint_path}")
+            print("   Please run with RESUME_FROM_PHASE_3 = False first.")
+            return
+
+    else:
+        # =========================================================================
+        # PHASE 1: DOCUMENT INGESTION & PREPROCESSING (STUBBED)
+        # =========================================================================
+        print("-" * 80)
+        print("PHASE 1: DOCUMENT INGESTION & PREPROCESSING")
+        print("-" * 80)
+        print("Status: Loading and segmenting medical text...")
+        
+        try:
+            text_segments = load_and_segment_text(input_file)
+            print(f"✓ Phase 1 Complete. Found {len(text_segments)} text chunks.")
+            print(f"  Sample chunk: {text_segments[0]['text'][:100]}..." if text_segments else "  No chunks found.")
+            print()
+        except Exception as e:
+            print(f"✗ Phase 1 Failed: {e}")
+            return
+        
+        # =========================================================================
+        # PHASE 2: TRIPLE EXTRACTION
+        # =========================================================================
+        print("-" * 80)
+        print("PHASE 2: TRIPLE EXTRACTION")
+        print("-" * 80)
+        print("Status: Extracting (Head, Relation, Tail) triples from text...")
+        
+        try:
+            extractor = TripleExtractor(use_real_llm=use_real_llm)
+            all_triples, unique_nodes = extractor.extract_from_segments(text_segments)
+            
+            print(f"✓ Phase 2 Complete.")
+            print(f"  - Total Triples Extracted: {len(all_triples)}")
+            print(f"  - Entity-Entity (E-E): {sum(1 for t in all_triples if t['type'] == 'E-E')}")
+            print(f"  - Entity-Event (E-Ev): {sum(1 for t in all_triples if t['type'] == 'E-Ev')}")
+            print(f"  - Event-Event (Ev-Ev): {sum(1 for t in all_triples if t['type'] == 'Ev-Ev')}")
+            print(f"  - Unique Nodes: {len(unique_nodes)}")
+            print()
+            
+            # -------------------------------------------------------
+            # [NEW] SAVE PHASE 2 CHECKPOINT
+            # -------------------------------------------------------
+            print(f"💾 Saving Phase 2 Checkpoints to '{output_dir}'...")
+            
+            checkpoint_data = {
+                "all_triples": all_triples,
+                "unique_nodes": unique_nodes
+            }
+            
+            # 1. Save Pickle (For Machine/Resume)
+            pkl_path = os.path.join(output_dir, "Phase2_Response.pkl")
+            with open(pkl_path, "wb") as f:
+                pickle.dump(checkpoint_data, f)
+            print(f"   -> Saved Checkpoint (Pickle): {pkl_path}")
+            
+            # 2. Save JSON (For Human Reading)
+            json_path = os.path.join(output_dir, "Phase2_Response.json")
+            
+            # Helper for serializing Sets
+            def set_default(obj):
+                if isinstance(obj, set): return list(obj)
+                return str(obj)
+                
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(checkpoint_data, f, indent=2, ensure_ascii=False, default=set_default)
+            print(f"   -> Saved Output (JSON): {json_path}")
+            print()
+
+        except Exception as e:
+            print(f"✗ Phase 2 Failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return
     
     # =========================================================================
     # PHASE 3: HYBRID SCHEMA INDUCTION & ONTOLOGY GROUNDING
@@ -139,6 +214,23 @@ def main():
         grounded_nodes = ground_concepts_to_ontology(induced_concepts)
         print(f"✓ Part 3b Complete. Grounded {len(grounded_nodes)} nodes to ontology IDs.")
         print()
+
+        # -------------------------------------------------------
+        # [NEW] SAVE PHASE 3 OUTPUT
+        # -------------------------------------------------------
+        print(f"💾 Saving Phase 3 Output...")
+        phase3_json_path = os.path.join(output_dir, "Phase3_Response.json")
+        
+        # Helper for serializing objects
+        def obj_dict_serializer(obj):
+            if hasattr(obj, '__dict__'): return obj.__dict__
+            return str(obj)
+            
+        with open(phase3_json_path, "w", encoding="utf-8") as f:
+            json.dump(grounded_nodes, f, indent=2, ensure_ascii=False, default=obj_dict_serializer)
+        print(f"   -> Saved Phase 3 Output (JSON): {phase3_json_path}")
+        print()
+
     except Exception as e:
         print(f"✗ Part 3b Failed: {e}")
         return
@@ -172,7 +264,7 @@ def main():
     print()
     
     # Print summary
-    print_pipeline_summary(text_segments, all_triples, grounded_nodes, knowledge_graph)
+    print_pipeline_summary(text_segments if not RESUME_FROM_PHASE_3 else [], all_triples, grounded_nodes, knowledge_graph)
     
     # Save visualization
     try:

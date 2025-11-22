@@ -26,7 +26,7 @@ from pathlib import Path
 
 # CẤU HÌNH SỐ LUỒNG (THREADS)
 # Với RTX 3080 10GB + Llama 3 8B, mức 4-5 là tối ưu.
-MAX_WORKERS = 16
+MAX_WORKERS = 5
 
 # Replace hard-coded path with env-configurable path
 LOG_DIR = Path(os.getenv("OUTPUT_DIR", "output"))

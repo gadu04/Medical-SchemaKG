@@ -76,16 +76,17 @@ class Neo4jImporter:
                     continue
                 
                 # Create node with properties
-                query = f"""
-                MERGE (n:{labels} {{id: $id}})
-                SET n.name = $name,
-                    n.ontology_id = $ontology_id,
-                    n.ontology_name = $ontology_name,
-                    n.semantic_type = $semantic_type,
-                    n.induced_concept = $induced_concept,
-                    n.original_node = $original_node,
-                    n.uri = $uri
-                """
+                query = """
+                    MERGE (n:%s {id: $id})
+                    SET n.name = $name,
+                        n.ontology_id = $ontology_id,
+                        n.ontology_name = $ontology_name,
+                        n.semantic_type = $semantic_type,
+                        n.induced_concept = $induced_concept,
+                        n.original_node = $original_node,
+                        n.uri = $uri
+                """ % labels
+
                 
                 session.run(query, {
                     'id': node_id,
@@ -140,33 +141,30 @@ class Neo4jImporter:
                     if skipped <= 3:
                         print(f"Skipping rel - Start: '{start_id}', End: '{end_id}', Type: '{rel_type}'")
                     continue
-                
-                # Replace spaces and special characters in relationship type
-                # Remove/replace characters that are invalid in Neo4j relationship types
+
                 rel_type_clean = rel_type.upper()
-                # Replace invalid characters with underscore
-                invalid_chars = [' ', '-', ',', '.', '/', '\\', '(', ')', '[', ']', '{', '}', ':', ';', '"', "'"]
-                for char in invalid_chars:
-                    rel_type_clean = rel_type_clean.replace(char, '_')
-                # Remove multiple consecutive underscores
-                while '__' in rel_type_clean:
-                    rel_type_clean = rel_type_clean.replace('__', '_')
-                # Remove leading/trailing underscores
+
+                import re
+                rel_type_clean = re.sub(r'[^A-Za-z0-9_]', '_', rel_type_clean)
+
+                rel_type_clean = re.sub(r'_+', '_', rel_type_clean)
+
                 rel_type_clean = rel_type_clean.strip('_')
-                
-                # If relationship type is too long or empty, use a default
-                if not rel_type_clean or len(rel_type_clean) > 200:
-                    rel_type_clean = 'RELATED_TO'
-                
-                # Create relationship
+
+                if not re.match(r'^[A-Za-z]', rel_type_clean):
+                    rel_type_clean = "REL_" + rel_type_clean
+
+                if rel_type_clean == "":
+                    rel_type_clean = "REL_UNSPECIFIED"
+
                 query = f"""
-                MATCH (start:Entity {{id: $start_id}})
-                MATCH (end:Entity {{id: $end_id}})
-                MERGE (start)-[r:{rel_type_clean}]->(end)
-                SET r.relation = $relation,
-                    r.confidence = toFloat($confidence),
-                    r.segment_id = $segment_id,
-                    r.doc_id = $doc_id
+                    MATCH (start {{id: $start_id}})
+                    MATCH (end {{id: $end_id}})
+                    MERGE (start)-[r:{rel_type_clean}]->(end)
+                    SET r.relation = $relation,
+                        r.confidence = toFloat($confidence),
+                        r.segment_id = $segment_id,
+                        r.doc_id = $doc_id
                 """
                 
                 try:

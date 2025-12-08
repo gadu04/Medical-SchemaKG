@@ -206,28 +206,48 @@ class TogV3Retriever:
         return embeddings
 
     def ner(self, text: str) -> Dict:
-        """Extract topic entities from the query using LLM."""
+        """Extract topic entities using LLM with JSON-safe parsing."""
         messages = [
             {
                 "role": "system",
-                "content": "Extract the named entities from the provided question and output them as a JSON object in the format: {\"entities\": [\"entity1\", \"entity2\", ...]}"
+                "content": (
+                    "Extract named entities from the question. "
+                    "Return ONLY valid JSON in this exact format: "
+                    "{\"entities\": [\"entity1\", \"entity2\"]}. "
+                    "Do NOT add explanations, comments, or text outside JSON."
+                )
             },
-            {
-                "role": "user",
-                "content": f"Extract all the named entities from: {text}"
-            }
+            {"role": "user", "content": f"Question: {text}"}
         ]
+
         response = self.llm_generator.generate_response(messages)
+
+        # ---- JSON SANITIZATION ----
         try:
-            import json
-            entities_json = json.loads(response)
-        except Exception as e:
-            print(f"NER parsing error: {e}")
+            # Remove whitespace
+            cleaned = response.strip()
+
+            # Remove ```json ... ```
+            if cleaned.startswith("```"):
+                cleaned = cleaned.strip("`")
+                cleaned = cleaned.replace("json", "", 1).strip()
+
+            # Try direct parsing
+            return json.loads(cleaned)
+
+        except Exception:
+            # SECOND ATTEMPT: extract JSON substring manually
+            import re
+            match = re.search(r"\{.*\}", response, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except:
+                    pass
+
+            print(f"NER parsing error — could not decode JSON. Raw LLM output:\n{response}")
             return {"entities": []}
-        
-        if "entities" not in entities_json or not isinstance(entities_json["entities"], list):
-            return {"entities": []}
-        return entities_json
+
 
     def retrieve_topk_nodes(self, query: str, topN: int = 5) -> List:
         """Retrieve top-k most relevant nodes for the query."""

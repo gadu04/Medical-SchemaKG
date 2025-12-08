@@ -12,95 +12,132 @@ GRAPH STRUCTURE:
 
 import networkx as nx
 from typing import List, Dict
+import re
+import unicodedata
+
+canonical_event_map = {}  
+
+def normalize_text_for_matching(s: str) -> str:
+    if not s:
+        return ""
+    s = re.sub(r'^\[?(Event|Entity):\s*', '', s, flags=re.I)
+    s = re.sub(r'\]$', '', s)
+
+    s = unicodedata.normalize('NFKD', s)
+    s = ''.join([c for c in s if not unicodedata.combining(c)])
+    s = s.lower()
+    s = re.sub(r'[^a-z0-9\s]', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+def get_canonical_event_name(raw_event_name: str) -> str:
+    norm = normalize_text_for_matching(raw_event_name)
+    if norm in canonical_event_map:
+        return canonical_event_map[norm]
+
+    # Remove old prefix completely
+    clean = re.sub(r'^\[?(Event|Entity):\s*', '', raw_event_name.strip(), flags=re.I)
+    clean = re.sub(r'\]$', '', clean)
+
+    canonical = f"[Event: {clean}]"
+    canonical_event_map[norm] = canonical
+    return canonical
+
+
 
 
 def build_knowledge_graph(all_triples: List[Dict], grounded_nodes: Dict[str, Dict]) -> nx.MultiDiGraph:
     """
-    Build the final knowledge graph from extracted triples and grounded nodes.
-    
-    This function creates a NetworkX MultiDiGraph (allows multiple edges between
-    the same pair of nodes) and populates it with:
-    1. All unique nodes with their grounded attributes
-    2. All relationships (edges) from the triple extraction phase
-    
-    Args:
-        all_triples (List[Dict]): List of all extracted triples with metadata
-        grounded_nodes (Dict[str, Dict]): Dictionary mapping node names to 
-            their grounded attributes (ontology_id, semantic_type, etc.)
-            
-    Returns:
-        nx.MultiDiGraph: The constructed knowledge graph
+    Build the final knowledge graph with event canonicalization (FIX4 + FIX5).
     """
-    # Initialize MultiDiGraph (allows multiple edges between same nodes)
+
     kg = nx.MultiDiGraph()
-    
     print("  Building graph structure...")
-    
-    # Step 1: Add all nodes with their grounded attributes
+
     print(f"  Adding {len(grounded_nodes)} nodes with attributes...")
-    for node_name, attributes in grounded_nodes.items():
+
+    for original_name, attributes in grounded_nodes.items():
+
+        node_name = original_name
+
+        if node_name.startswith("[Event:"):
+            node_name = get_canonical_event_name(node_name)
+
+
+        node_type = _determine_node_type(node_name, all_triples)
+
         kg.add_node(
             node_name,
-            ontology_id=attributes.get('ontology_id', 'UNKNOWN'),
-            induced_concept=attributes.get('induced_concept', ''),
-            ontology_name=attributes.get('ontology_name', node_name),
-            semantic_type=attributes.get('semantic_type', 'Medical Concept'),
-            node_type=_determine_node_type(node_name, all_triples)
+            ontology_id=attributes.get("ontology_id", "UNKNOWN"),
+            induced_concept=attributes.get("induced_concept", ""),
+            ontology_name=attributes.get("ontology_name", node_name),
+            semantic_type=attributes.get("semantic_type", "Medical Concept"),
+            node_type=node_type
         )
-    
-    # Step 2: Add all edges (relationships) from triples
+
     print(f"  Adding {len(all_triples)} relationships (edges)...")
+
     for triple in all_triples:
-        head = triple['head']
-        tail = triple['tail']
-        relation = triple['relation']
-        
-        # Add edge with rich metadata
+
+        head = triple["head"]
+        tail = triple["tail"]
+        relation = triple["relation"]
+
+        if head.startswith("[Event:"):
+            head = get_canonical_event_name(head)
+
+        if tail.startswith("[Event:"):
+            tail = get_canonical_event_name(tail)
+
         kg.add_edge(
             head,
             tail,
             relation=relation,
-            triple_type=triple['type'],
-            head_type=triple.get('head_type', 'entity'),
-            tail_type=triple.get('tail_type', 'entity'),
-            segment_id=triple.get('segment_id', 0),
-            confidence=triple.get('confidence', 1.0)
+            triple_type=triple.get("type", ""),
+            head_type=triple.get("head_type", "entity"),
+            tail_type=triple.get("tail_type", "entity"),
+            segment_id=triple.get("segment_id", 0),
+            confidence=triple.get("confidence", 1.0)
         )
-    
+
     print("  Graph construction complete!")
-    
     return kg
+
 
 
 def _determine_node_type(node_name: str, all_triples: List[Dict]) -> str:
     """
-    Determine if a node is primarily an entity or event based on triple context.
-    
-    Args:
-        node_name (str): The name of the node
-        all_triples (List[Dict]): List of all triples
-        
-    Returns:
-        str: 'entity' or 'event'
+    Determine node type using deterministic cues first:
+      1) If name has explicit [Event:] prefix -> 'event'
+      2) If name has explicit [Entity:] prefix -> 'entity'
+      3) Else fallback to counting context in triples (majority)
     """
+    # 1) explicit prefix check (highest priority)
+    if isinstance(node_name, str):
+        low = node_name.strip()
+        if low.startswith("[Event:") or low.startswith("Event:"):
+            return 'event'
+        if low.startswith("[Entity:") or low.startswith("Entity:"):
+            return 'entity'
+
+    # 2) fallback: count in triples
     entity_count = 0
     event_count = 0
-    
     for triple in all_triples:
-        if triple['head'] == node_name:
-            if triple['head_type'] == 'entity':
+        if triple.get('head') == node_name:
+            if triple.get('head_type') == 'entity':
                 entity_count += 1
-            else:
+            elif triple.get('head_type') == 'event':
                 event_count += 1
-        
-        if triple['tail'] == node_name:
-            if triple['tail_type'] == 'entity':
+        if triple.get('tail') == node_name:
+            if triple.get('tail_type') == 'entity':
                 entity_count += 1
-            else:
+            elif triple.get('tail_type') == 'event':
                 event_count += 1
-    
-    # Determine type based on majority
+
+    # if equal or more entity mentions -> entity else event
     return 'entity' if entity_count >= event_count else 'event'
+
 
 
 def get_graph_statistics(kg: nx.MultiDiGraph) -> Dict:

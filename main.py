@@ -60,7 +60,8 @@ def main():
     
     # Load configuration from environment variables (set in .env file)
     use_real_llm = os.getenv("USE_REAL_LLM", "false").lower() == "true"
-    input_file = os.getenv("INPUT_FILE", "data/parsed/AMA_Family_Guide_content.md")
+    # input_file = os.getenv("INPUT_FILE", "data/parsed/AMA_Family_Guide_content.md")
+    input_dir = os.getenv("INPUT_DIR", "data/parsed/")
     output_dir = os.getenv("OUTPUT_DIR", "output")
     model_name = os.getenv("MODEL_NAME", "local-model")
     lm_studio_url = os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1")
@@ -70,7 +71,8 @@ def main():
     if use_real_llm:
         print(f"  - LM Studio URL: {lm_studio_url}")
         print(f"  - Model: {model_name}")
-    print(f"  - Input File: {input_file}")
+    # print(f"  - Input File: {input_file}")
+    print(f"  - Input Directory: {input_dir}")
     print(f"  - Output Directory: {output_dir}")
     print(f"  - Resume Mode: {'ON (Skipping P1/P2)' if RESUME_FROM_PHASE_3 else 'OFF (Running full pipeline)'}")
     print()
@@ -119,11 +121,22 @@ def main():
         print("-" * 80)
         print("PHASE 1: DOCUMENT INGESTION & PREPROCESSING")
         print("-" * 80)
-        print("Status: Loading and segmenting medical text...")
+        print(f"Status: Loading and segmenting medical text from directory: {input_dir}...")
         
+        text_segments = []
         try:
-            text_segments = load_and_segment_text(input_file)
-            print(f"✓ Phase 1 Complete. Found {len(text_segments)} text chunks.")
+            if os.path.exists(input_dir) and os.path.isdir(input_dir):
+                for filename in os.listdir(input_dir):
+                    if filename.endswith(".md") or filename.endswith(".txt"):
+                        file_path = os.path.join(input_dir, filename)
+                        print(f"   Processing file: {filename}...")
+                        segments = load_and_segment_text(file_path)
+                        text_segments.extend(segments)
+            else:
+                input_file = os.getenv("INPUT_FILE", "data/parsed/AMA_Family_Guide_content.md")
+                text_segments = load_and_segment_text(input_file)
+
+            print(f"✓ Phase 1 Complete. Found total {len(text_segments)} text chunks from all files.")
             print(f"  Sample chunk: {text_segments[0]['text'][:100]}..." if text_segments else "  No chunks found.")
             print()
         except Exception as e:

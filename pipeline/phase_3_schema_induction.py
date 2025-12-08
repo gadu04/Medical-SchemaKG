@@ -213,12 +213,9 @@ def ground_concepts_to_ontology(induced_concepts: Dict[str, str], use_umls: bool
 # =========================================================================
 
 def _clean_node_text(text: str) -> str:
-    """Hàm làm sạch chuỗi: Loại bỏ [Event: ...], Event:, Entity:"""
-    # Loại bỏ [Event: ...], [Entity: ...]
-    text = re.sub(r'\[(Event|Entity):\s*(.*?)\]', r'\2', text)
-    # Loại bỏ prefix Event:, Entity: nếu có
-    text = re.sub(r'^(Event|Entity):\s*', '', text)
-    return text.strip()
+    # preserve original event type for graph
+    cleaned = re.sub(r'\[(Event|Entity):\s*(.*?)\]', r'\2', text)
+    return cleaned.strip()
 
 def _create_fallback_data(name, source_type):
     """Tạo dữ liệu mặc định khi không tìm thấy"""

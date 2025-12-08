@@ -160,12 +160,10 @@ class TripleExtractor:
         
         # Helper local function to avoid code duplication
         def add_triple(t_data, t_type, h_type, t_type_str):
-            # FIX: Dùng (val or '') để biến None thành chuỗi rỗng trước khi strip
             head = (t_data.get('head') or '').strip()
             relation = (t_data.get('relation') or '').strip()
             tail = (t_data.get('tail') or '').strip()
-            
-            # Chỉ thêm vào nếu cả 3 thành phần đều có dữ liệu
+
             if head and relation and tail:
                 processed_triples.append({
                     'type': t_type,
@@ -178,6 +176,7 @@ class TripleExtractor:
                     'doc_id': doc_id,
                     'confidence': t_data.get('confidence', 1.0)
                 })
+
 
         # Process Entity-Entity triples
         for triple in triples_data.get('entity_entity', []):
@@ -220,3 +219,23 @@ class TripleExtractor:
             'entity_list': sorted(list(entity_nodes)),
             'event_list': sorted(list(event_nodes))
         }
+    
+    def canonicalize_event(text: str) -> str:
+        """
+        Normalize event names into a consistent representation.
+        Ensures all events have the prefix [Event: ...]
+        """
+        if not text:
+            return ""
+
+        t = text.strip()
+
+        # If has [Event: ...] already
+        if t.startswith("[Event:") and t.endswith("]"):
+            return t
+
+        # Remove accidental quotes
+        t = t.strip('"').strip("'")
+
+        # Add standard event wrapper
+        return f"[Event: {t}]"

@@ -45,7 +45,6 @@ class Neo4jImporter:
         
         with open(csv_file_path, 'r', encoding='utf-8-sig', errors='ignore') as f:
             reader = csv.DictReader(f)
-            # Clean column names by stripping whitespace and BOM
             reader.fieldnames = [name.strip() for name in reader.fieldnames]
             nodes = list(reader)
         

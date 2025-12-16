@@ -97,114 +97,96 @@ class TogV3Retriever:
                  inference_config: Optional[InferenceConfig] = None,
                  use_qdrant: bool = True,
                  qdrant_url: str = "http://localhost:6333"):
-        """
-        Initialize ToG retriever.
-        
-        Args:
-            KG: NetworkX DiGraph representation of the knowledge graph
-            llm_generator: LLM generator for NER and reasoning
-            sentence_encoder: Embedding model for similarity computation
-            inference_config: Configuration for inference
-            use_qdrant: Whether to use Qdrant for embedding storage
-            qdrant_url: Qdrant server URL
-        """
-        self.KG: nx.DiGraph = KG
+        self.KG = KG
         self.node_list = list(self.KG.nodes())
         self.edge_list = list(self.KG.edges)
-        
         self.llm_generator = llm_generator
         self.sentence_encoder = sentence_encoder
         self.inference_config = inference_config if inference_config else InferenceConfig()
-        
         self.use_qdrant = use_qdrant
         self.collection_name = "kg_nodes"
         
-        # Setup Qdrant or precompute embeddings
+        print(f"  ℹ Initialized ToG with {len(self.node_list)} nodes and {len(self.edge_list)} edges")
+        
         if use_qdrant:
-            print("Setting up Qdrant for embedding storage...")
+            print("  Setting up Qdrant vector store...")
             self._setup_qdrant(qdrant_url)
         else:
-            print("Computing node embeddings...")
+            print("  Computing node embeddings locally...")
             self.node_embeddings = self._compute_node_embeddings()
-            print(f"Node embeddings shape: {self.node_embeddings.shape}")
-
+            print(f"  ✓ Computed {self.node_embeddings.shape[0]} embeddings")
+    
     def _setup_qdrant(self, url: str):
         """Setup Qdrant collection for embeddings."""
-        from qdrant_client import QdrantClient
-        from qdrant_client.models import Distance, VectorParams, PointStruct
-        
-        self.qdrant_client = QdrantClient(url=url)
-        
-        # Check if collection exists
-        collections = self.qdrant_client.get_collections().collections
-        collection_exists = any(c.name == self.collection_name for c in collections)
-        
-        if collection_exists:
-            print(f"✓ Using existing Qdrant collection '{self.collection_name}'")
-            return
-        
-        # Create collection and index embeddings
-        print(f"Creating new Qdrant collection '{self.collection_name}'...")
-        
-        # Get embedding dimension from a sample
-        sample_text = self.KG.nodes[self.node_list[0]].get('name', str(self.node_list[0]))
-        sample_embedding = self.sentence_encoder.encode([sample_text])[0]
-        embedding_dim = len(sample_embedding)
-        
-        self.qdrant_client.create_collection(
-            collection_name=self.collection_name,
-            vectors_config=VectorParams(size=embedding_dim, distance=Distance.COSINE)
-        )
-        
-        # Index all nodes in batches
-        print(f"Indexing {len(self.node_list)} nodes...")
-        batch_size = 100
-        points = []
-        
-        for idx, node in enumerate(self.node_list):
-            node_data = self.KG.nodes[node]
-            text = node_data.get('name', node_data.get('id', str(node)))
+        try:
+            from qdrant_client import QdrantClient
+            from qdrant_client.http import models
             
-            # Compute embedding
-            if len(points) == 0 or len(points) % batch_size != 0:
-                embedding = self.sentence_encoder.encode([text])[0]
+            self.qdrant_client = QdrantClient(url=url)
             
-            point = PointStruct(
-                id=idx,
-                vector=embedding.tolist(),
-                payload={"node_id": str(node), "text": text}
-            )
-            points.append(point)
-            
-            # Upload batch
-            if len(points) >= batch_size:
+            # Check if collection exists
+            try:
+                self.qdrant_client.get_collection(self.collection_name)
+                print(f"  ✓ Using existing Qdrant collection: {self.collection_name}")
+                
+                # Verify collection has all nodes
+                collection_info = self.qdrant_client.get_collection(self.collection_name)
+                stored_count = collection_info.points_count
+                expected_count = len(self.node_list)
+                
+                if stored_count != expected_count:
+                    print(f"  ⚠ Collection has {stored_count} points but KG has {expected_count} nodes")
+                    print(f"  → Rebuilding Qdrant collection...")
+                    self.qdrant_client.delete_collection(self.collection_name)
+                    raise Exception("Force rebuild")
+                    
+            except Exception:
+                # Create new collection
+                print(f"  Creating new Qdrant collection: {self.collection_name}")
+                
+                # Compute embeddings for all nodes
+                node_texts = [str(node) for node in self.node_list]
+                embeddings = self.sentence_encoder.encode(node_texts)
+                
+                vector_size = embeddings.shape[1]
+                
+                self.qdrant_client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=models.VectorParams(
+                        size=vector_size,
+                        distance=models.Distance.COSINE
+                    )
+                )
+                
+                # Upload all node embeddings
+                points = [
+                    models.PointStruct(
+                        id=idx,
+                        vector=embeddings[idx].tolist(),
+                        payload={"node_name": str(node)}
+                    )
+                    for idx, node in enumerate(self.node_list)
+                ]
+                
                 self.qdrant_client.upsert(
                     collection_name=self.collection_name,
                     points=points
                 )
-                print(f"  Indexed {idx + 1}/{len(self.node_list)} nodes...")
-                points = []
-        
-        # Upload remaining
-        if points:
-            self.qdrant_client.upsert(
-                collection_name=self.collection_name,
-                points=points
-            )
-        
-        print(f"✓ Indexed all {len(self.node_list)} nodes in Qdrant")
+                
+                print(f"  ✓ Indexed {len(points)} nodes in Qdrant")
+                
+        except Exception as e:
+            print(f"  ✗ Qdrant setup failed: {e}")
+            print(f"  → Falling back to local embeddings")
+            self.use_qdrant = False
+            self.node_embeddings = self._compute_node_embeddings()
     
     def _compute_node_embeddings(self) -> np.ndarray:
         """Compute embeddings for all nodes (fallback when not using Qdrant)."""
-        node_texts = []
-        for node in self.node_list:
-            node_data = self.KG.nodes[node]
-            text = node_data.get('name', node_data.get('id', str(node)))
-            node_texts.append(text)
-        
+        node_texts = [str(node) for node in self.node_list]
         embeddings = self.sentence_encoder.encode(node_texts)
         return embeddings
-
+    
     def ner(self, text: str) -> Dict:
         """Extract topic entities using LLM with JSON-safe parsing."""
         messages = [
@@ -482,39 +464,67 @@ Detailed Answer:"""
 
 def load_kg_from_neo4j(uri: str, user: str, password: str) -> nx.DiGraph:
     """Load knowledge graph from Neo4j into NetworkX."""
-    print("Loading KG from Neo4j...")
     driver = GraphDatabase.driver(uri, auth=(user, password))
     G = nx.DiGraph()
     
     with driver.session() as session:
-        # Load nodes
-        result = session.run("MATCH (n:Entity) RETURN n")
+        # Load ALL nodes (not just labeled ones)
+        result = session.run("""
+            MATCH (n)
+            RETURN n.name AS name, 
+                   labels(n) AS labels,
+                   n.ontology_id AS ontology_id,
+                   n.semantic_type AS semantic_type,
+                   n.induced_concept AS induced_concept
+        """)
+        
+        node_count = 0
         for record in result:
-            node = record["n"]
-            node_id = node.get("id", node.element_id)
-            G.add_node(node_id, **dict(node))
+            node_name = record["name"]
+            if not node_name:
+                continue
+                
+            G.add_node(
+                node_name,
+                labels=record["labels"],
+                ontology_id=record.get("ontology_id", ""),
+                semantic_type=record.get("semantic_type", ""),
+                induced_concept=record.get("induced_concept", "")
+            )
+            node_count += 1
         
-        print(f"Loaded {len(G.nodes())} nodes")
+        print(f"  ✓ Loaded {node_count} nodes from Neo4j")
         
-        # Load relationships
-        result = session.run("MATCH (a:Entity)-[r]->(b:Entity) RETURN a, r, b")
+        # Load ALL relationships
+        result = session.run("""
+            MATCH (a)-[r]->(b)
+            WHERE a.name IS NOT NULL AND b.name IS NOT NULL
+            RETURN a.name AS source, 
+                   b.name AS target,
+                   type(r) AS relation,
+                   r.confidence AS confidence
+        """)
+        
+        edge_count = 0
         for record in result:
-            source = record["a"].get("id", record["a"].element_id)
-            target = record["b"].get("id", record["b"].element_id)
-            rel = record["r"]
-            
-            # Get relation name
-            relation = rel.get("relation", rel.type)
-            
-            # Get all edge attributes except 'relation' to avoid conflict
-            edge_attrs = dict(rel)
-            edge_attrs['relation'] = relation  # Set the relation attribute
-            
-            G.add_edge(source, target, **edge_attrs)
+            source = record["source"]
+            target = record["target"]
+            if source and target:
+                G.add_edge(
+                    source,
+                    target,
+                    relation=record["relation"],
+                    confidence=record.get("confidence", 1.0)
+                )
+                edge_count += 1
         
-        print(f"Loaded {len(G.edges())} edges")
+        print(f"  ✓ Loaded {edge_count} edges from Neo4j")
     
     driver.close()
+    
+    if G.number_of_nodes() == 0:
+        raise ValueError("No nodes loaded from Neo4j. Check your database connection and data.")
+    
     return G
 
 

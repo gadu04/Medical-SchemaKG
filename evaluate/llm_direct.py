@@ -120,7 +120,7 @@ def main():
     
     # Get base directory and setup paths
     base_dir = Path(__file__).parent.parent
-    input_csv = base_dir / "evaluate" / "data" / "1000.csv"
+    input_csv = base_dir / "evaluate" / "data" / "test_question.csv"
     output_csv = base_dir / "evaluate" / "data" / "llm_answer.csv"
     
     # Process questions from CSV

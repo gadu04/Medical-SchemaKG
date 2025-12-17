@@ -194,7 +194,7 @@ if __name__ == "__main__":
     import sys
     import json
     
-    test_file = "data/parsed/ACP_Home_Guide_content.md"
+    test_file = "data/ACP_Home_Guide_content.md"
     
     if len(sys.argv) > 1:
         test_file = sys.argv[1]

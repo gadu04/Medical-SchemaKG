@@ -118,7 +118,7 @@ def main():
                         segments = load_and_segment_text(file_path)
                         text_segments.extend(segments)
             else:
-                input_file = os.getenv("INPUT_FILE", "data/parsed/AMA_Family_Guide_content.md")
+                input_file = os.getenv("INPUT_FILE", "data/AMA_Family_Guide_content.md")
                 text_segments = load_and_segment_text(input_file)
 
             print(f"✓ Phase 1 Complete. Found total {len(text_segments)} text chunks from all files.")

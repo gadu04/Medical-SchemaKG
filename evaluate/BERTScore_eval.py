@@ -67,7 +67,7 @@ def main():
     device = check_cuda_availability()
     
     base_dir = Path(__file__).parent.parent
-    ground_truth_path = base_dir / "evaluate" / "data" / "1000.csv"
+    ground_truth_path = base_dir / "evaluate" / "data" / "test_question.csv"
     
     # Đường dẫn file kết quả
     tog_answer_path = base_dir / "evaluate" / "data" / "ToG_answer.csv"

@@ -91,7 +91,20 @@ This step will:
 
 ---
 
-#### Step 2: Push the Knowledge Graph into Neo4j (Required)
+### Step 2: Start Neo4j using Docker Compose
+Neo4j is deployed using Docker. Before pushing the knowledge graph, make sure the Neo4j service is running:
+
+```bash
+docker compose up -d
+```
+
+This step will:
+- Start the Neo4j database container
+- Expose Neo4j services (Bolt / Browser)
+- Prepare the graph database for data ingestion
+
+> ⚠️ Ensure Docker and Docker Compose are installed and running.
+#### Step 3: Push the Knowledge Graph into Neo4j
 
 After `main.py` finishes, run the Neo4j export script:
 
@@ -113,8 +126,9 @@ This step will:
 
 - `main.py` builds the knowledge graph but **does not persist it to Neo4j**
 - `kg_build.py` is responsible for **graph persistence and database population**
+- Neo4j must be running via Docker Compose before executing `kg_build.py`
 - You can re-run `kg_build.py` independently without re-running the entire pipeline
-- Neo4j is used as the backend graph store for downstream evaluation and reasoning (e.g., Think-on-Graph, LLM-based querying)
+- Neo4j is used as the backend graph store for downstream evaluation and reasoning (e.g.  Think-on-Graph, LLM-based querying)
 
 
 ### Using Real LLM API

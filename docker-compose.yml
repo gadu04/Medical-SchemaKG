@@ -39,3 +39,5 @@ volumes:
   neo4j_import:
   neo4j_plugins:
   qdrant_storage:
+
+  

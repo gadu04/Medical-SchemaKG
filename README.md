@@ -312,31 +312,6 @@ After execution, the following files are generated in the `output/` directory:
 4. **knowledge_graph_edges.txt**: Simple edge list format
 
 
-## Extending the Framework
-
-### Adding Custom Text Processing
-
-Modify `pipeline/phase_1_ingestion.py` to implement:
-- OCR integration
-- Advanced text cleaning
-- Sentence-level segmentation
-- Multi-document handling
-
-### Custom Ontology Mapping
-
-Replace `ground_concepts_to_ontology()` in `pipeline/phase_3_schema_induction.py` with:
-- UMLS API integration
-- SNOMED CT lookup
-- Custom medical ontologies
-
-### Alternative LLM Models
-
-Modify `llm_api/real_api.py` to use:
-- Different Together AI models
-- OpenAI API
-- Local LLM endpoints
-
-
 ## Based On
 
 This framework implements concepts from:

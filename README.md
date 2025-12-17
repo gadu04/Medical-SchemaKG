@@ -6,6 +6,8 @@ A Python prototype framework for building ontology-grounded medical knowledge gr
 
 The Medical-SchemaKG Framework implements a four-phase pipeline to construct knowledge graphs from medical text documents:
 
+![Overview of the Medical-SchemaKG framework](medical-schemakg-framework.png)
+
 1. **Phase 1: Document Ingestion & Preprocessing**
 2. **Phase 2: Triple Extraction**
 3. **Phase 3: Hybrid Schema Induction & Ontology Grounding**
